@@ -43,17 +43,7 @@ This quickstart assumes you have familiarity with:
     git clone git@github.com:gamma-app/gamma-mcp-server.git
     cd gamma-mcp-server
     ```
-
-    If you only have the `src/index.ts` file, create a new project directory:
-
-    ```bash
-    mkdir gamma-mcp-server
-    cd gamma-mcp-server
-    mkdir src
-    # Place the index.ts file into the src directory
-    # Create a package.json file (see step 2)
-    ```
-
+    
 2.  **Initialize Your Node.js Project (if not cloned):**
     If you created a new directory, initialize a `package.json` file:
 
@@ -70,14 +60,8 @@ This quickstart assumes you have familiarity with:
     # yarn add @modelcontextprotocol/sdk zod node-fetch typescript ts-node @types/node
     ```
 
-4.  **Configure TypeScript:**
-    Create a `tsconfig.json` file in your project root if one doesn't exist:
-
-    ```bash
-    npx tsc --init
-    ```
-
-    You might want to adjust the `tsconfig.json` to suit your preferences, but the default should work. Ensure `moduleResolution` is set to `"node"` or `"node16"` / `"nodenext"` and `module` is compatible (e.g. `"commonjs"` if running with `ts-node` in a CommonJS context, or adjust for ES Modules). The provided `src/index.ts` uses ES module syntax (`import ... from`).
+4.  **Configure TypeScript:** 
+You might want to adjust the `tsconfig.json` to suit your preferences, but the default should work. Ensure `moduleResolution` is set to `"node"` or `"node16"` / `"nodenext"` and `module` is compatible (e.g. `"commonjs"` if running with `ts-node` in a CommonJS context, or adjust for ES Modules). The provided `src/index.ts` uses ES module syntax (`import ... from`).
     A common `tsconfig.json` for ES Modules with Node.js might include:
 
     ```json
@@ -100,32 +84,18 @@ This quickstart assumes you have familiarity with:
     Also, in your `package.json`, add `"type": "module"` if you are using ES Modules.
 
 5.  **API Key Configuration:**
-    The server requires your Gamma API key to be set as an environment variable named `GAMMA_API_KEY`.
+    The server requires your Gamma API key. We use the `dotenv` package to load this key from a `.env` file in the project root.
 
-    **IMPORTANT:** You **MUST** set this environment variable in the environment where your server process runs. Do not commit your API key directly into your codebase or configuration files that are version controlled.
+    1.  Create a file named `.env` in the root of your project (e.g., alongside your `package.json`).
+    2.  Add your Gamma API key to this file like so:
+        ```
+        GAMMA_API_KEY="your_actual_gamma_api_key_here"
+        ```
+        Replace `"your_actual_gamma_api_key_here"` with your actual key.
 
-    How to set environment variables depends on your operating system and shell:
+    **IMPORTANT:** The `.env` file is included in the project's `.gitignore` file, so it **WILL NOT** be committed to your Git repository. This is crucial for keeping your API key secret. Do not remove `.env` from `.gitignore` or commit your API key directly into your codebase.
 
-    - **Linux/macOS (bash/zsh):**
-      You can set it temporarily for the current session:
-
-      ```bash
-      export GAMMA_API_KEY="your_actual_gamma_api_key_here"
-      ```
-
-      To make it permanent, add this line to your shell's configuration file (e.g., `~/.bashrc`, `~/.zshrc`), then source the file or open a new terminal.
-
-    - **Windows (Command Prompt):**
-      ```cmd
-      set GAMMA_API_KEY=your_actual_gamma_api_key_here
-      ```
-      For PowerShell:
-      ```powershell
-      $env:GAMMA_API_KEY="your_actual_gamma_api_key_here"
-      ```
-      To set it permanently, search for "environment variables" in the Windows search bar and add it through the System Properties dialog.
-
-    If the `GAMMA_API_KEY` is not set, the server will log a fatal error and exit upon starting.
+    If the `GAMMA_API_KEY` is not found in the environment (e.g., if the `.env` file is missing or the key isn't set), the server will log a fatal error and exit upon starting.
 
 ## Understanding the Server Code (`src/index.ts`)
 
