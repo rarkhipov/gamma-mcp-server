@@ -40,8 +40,8 @@ This quickstart assumes you have familiarity with:
     If this project is in a Git repository, clone it:
 
     ```bash
-    git clone <repository_url>
-    cd <repository_name>
+    git clone git@github.com:gamma-app/gamma-mcp-server.git
+    cd gamma-mcp-server
     ```
 
     If you only have the `src/index.ts` file, create a new project directory:
