@@ -4,7 +4,7 @@ This document guides you through setting up and running the Gamma MCP (Model Con
 
 ## What is Gamma?
 
-Gamma (gamma.app) is an AI-powered platform designed to help users create various types of content, with a strong focus on presentations. It leverages artificial intelligence to automatically generate slides, suggest text, and incorporate imagery, allowing for rapid development of polished presentations from simple prompts or existing documents. This MCP server specifically interacts with Gamma's API to bring this presentation generation capability into environments like Claude for Desktop. Check out the [Gamma API docs](https://gamma.app/docs/Gamma-API-Alpha-4jaho6nbvdvpxng) to learn more.
+[Gamma](https://gamma.app) is an AI-powered platform designed to help users create various types of content, with a strong focus on presentations. It leverages artificial intelligence to automatically generate slides, suggest text, and incorporate imagery, allowing for rapid development of polished presentations from simple prompts or existing documents. This MCP server specifically interacts with Gamma's API to bring this presentation generation capability into environments like Claude for Desktop. Check out the [Gamma API docs](https://gamma.app/docs/Gamma-API-Alpha-4jaho6nbvdvpxng) to learn more.
 
 ## What We'll Be Building
 
