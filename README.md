@@ -2,9 +2,38 @@
 
 This document guides you through setting up and running the Gamma MCP (Model Context Protocol) server, which allows you to generate presentations using the Gamma API directly from MCP clients like Anthropic's Claude for Desktop.
 
+## Quick Start (TL;DR)
+
+Run everything from the `gamma-mcpserver` directory so local dependencies and the `tsconfig.json` are picked up.
+
+```bash
+cd /ABSOLUTE/PATH/TO/your/project/gamma-mcpserver
+npm install
+
+# Set your Gamma API key
+printf 'GAMMA_API_KEY="your_actual_gamma_api_key_here"\n' > .env
+
+# Option 1: Build and run compiled JS (recommended)
+npm run build && node build/index.js
+
+# Option 2: Run directly with ts-node during development
+npx ts-node --project tsconfig.json src/index.ts
+```
+
+Common gotchas:
+- "Error: Cannot find module './index.ts'": You likely ran from the wrong directory. `cd gamma-mcpserver` first, or pass the full path and `--project gamma-mcpserver/tsconfig.json` when running from elsewhere.
+- "Cannot find package '@modelcontextprotocol/sdk'": Install dependencies in this folder: `cd gamma-mcpserver && npm install`.
+- ESM/ts-node complaints: If you see module/ESM errors, try `npx ts-node --esm --project tsconfig.json src/index.ts`.
+
+Run from repo root (alternative):
+```bash
+cd /ABSOLUTE/PATH/TO/your/project
+npx ts-node --project gamma-mcpserver/tsconfig.json gamma-mcpserver/src/index.ts
+```
+
 ## What is Gamma?
 
-[Gamma](https://gamma.app) is an AI-powered platform designed to help users create various types of content, with a strong focus on presentations. It leverages artificial intelligence to automatically generate slides, suggest text, and incorporate imagery, allowing for rapid development of polished presentations from simple prompts or existing documents. This MCP server specifically interacts with Gamma's API to bring this presentation generation capability into environments like Claude for Desktop. Check out the [Gamma API docs](https://gamma.app/docs/Gamma-API-Alpha-4jaho6nbvdvpxng) to learn more.
+[Gamma](https://gamma.app) is an AI-powered platform designed to help users create various types of content, with a strong focus on presentations. It leverages artificial intelligence to automatically generate slides, suggest text, and incorporate imagery, allowing for rapid development of polished presentations from simple prompts or existing documents. This MCP server specifically interacts with Gamma's API to bring this presentation generation capability into environments like Claude for Desktop. Check out the Gamma Generate API v0.2 docs at [developers.gamma.app/reference/generate-a-gamma](https://developers.gamma.app/reference/generate-a-gamma).
 
 ## What We'll Be Building
 
@@ -115,8 +144,8 @@ Let's break down the key parts of the `src/index.ts` file:
 2.  **Gamma API Configuration:**
 
     ```typescript
-    const GAMMA_API_URL = "https://api.gamma.app/public-api/v0.1/generate";
-    const GAMMA_API_KEY = "YOUR_GAMMA_API_KEY_HERE"; // Replace or use env var
+    const GAMMA_API_V02_BASE = "https://public-api.gamma.app/v0.2/generations";
+    const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
     ```
 
     This sets up the base URL for the Gamma API and the API key.
@@ -188,18 +217,16 @@ Let's break down the key parts of the `src/index.ts` file:
     Before running the server, ensure you have set the `GAMMA_API_KEY` environment variable as described in the "API Key Configuration" section above.
 
 2.  **Start the Server:**
-    With the environment variable set, you can run the server using `ts-node`:
+    Build and start the server (uses `build/index.js`):
     ```bash
-    npx ts-node src/index.ts
+    npm run build && node build/index.js
     ```
-    Alternatively, you can add a script to your `package.json`:
+    Alternatively, you can add scripts to your `package.json`:
     ```json
     // package.json
     "scripts": {
-      "start": "ts-node src/index.ts",
-      // if you compile to JS first:
-      // "build": "tsc",
-      // "start:prod": "node dist/index.js"
+      "build": "tsc",
+      "start": "node build/index.js"
     },
     ```
     Then run:
@@ -274,8 +301,7 @@ To use this server with Claude for Desktop, you need to configure Claude for Des
     - `"gamma-presentation-generator"`: This is the name you give to your server configuration within Claude. It can be anything descriptive.
     - `"command"`: The executable to run. `npx` is convenient as it resolves `ts-node` from your project. If this causes issues, use the absolute path to your Node.js executable.
     - `"args"`: Arguments passed to the command.
-      - If `command` is `npx`, the first arg is `ts-node`, followed by the path to your main server file (`src/index.ts`), relative to the `cwd`.
-      - If `command` is an absolute path to `node`, args would be `["/ABSOLUTE/PATH/TO/YOUR/gamma-mcp-server/node_modules/ts-node/dist/bin.js", "src/index.ts"]` or similar, making sure `ts-node`'s entry script is correctly referenced.
+      - Prefer pointing to the built file `build/index.js` with `node` for reliability, or use `npx ts-node src/index.ts` if you prefer running TypeScript directly during development.
     - `"cwd"`: **Crucially**, set this to the absolute path of your project's root directory (`gamma-mcp-server`). This ensures that `ts-node` can find `src/index.ts` and `node_modules`.
 
 4.  **Save and Restart Claude for Desktop:**
@@ -284,7 +310,7 @@ To use this server with Claude for Desktop, you need to configure Claude for Des
 5.  **Test with Commands:**
     Once Claude for Desktop restarts, it should attempt to connect to your server.
 
-    - Look for the tool icon (often a hammer знают) in the Claude for Desktop interface. Clicking it should show your `generate-presentation` tool.
+    - Look for the tool icon in the Claude for Desktop interface. Clicking it should show your `generate-presentation` tool.
     - Try prompting Claude:
       - "Generate a presentation about the future of artificial intelligence."
       - "Make a presentation on sustainable energy sources, targeting college students, make it medium length."
