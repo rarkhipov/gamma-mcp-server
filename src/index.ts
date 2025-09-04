@@ -3,39 +3,56 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-dotenv.config();
+import { fileURLToPath } from "url";
+import path from "path";
+import { mkdir, writeFile } from "fs/promises";
+
+// Ensure .env is loaded regardless of current working directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const GAMMA_API_V02_BASE = "https://public-api.gamma.app/v0.2/generations";
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 
+if (!GAMMA_API_KEY || GAMMA_API_KEY.trim() === "") {
+  console.error(
+    "GAMMA_API_KEY is missing. Create a .env file next to package.json with GAMMA_API_KEY=... or export it in your environment."
+  );
+  process.exit(1);
+}
+
 function removeUndefinedDeep<T>(value: T): T {
   if (Array.isArray(value)) {
-    // @ts-expect-error intentional generic
-    return value.map((v) => removeUndefinedDeep(v)).filter((v) => v !== undefined);
+    return (value
+      .map((v) => removeUndefinedDeep(v))
+      .filter((v) => v !== (undefined as any)) as unknown) as T;
   }
   if (value && typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const cleaned = removeUndefinedDeep(v);
-      if (cleaned !== undefined && !(typeof cleaned === "object" && cleaned !== null && Object.keys(cleaned as object).length === 0)) {
-        result[k] = cleaned;
+      const cleaned = removeUndefinedDeep(v as unknown as any);
+      const isEmptyObject = typeof cleaned === "object" && cleaned !== null && Object.keys(cleaned as object).length === 0;
+      if (cleaned !== undefined && !isEmptyObject) {
+        result[k] = cleaned as unknown as any;
       }
     }
-    // @ts-expect-error preserve type
-    return result;
+    return result as unknown as T;
   }
-  // @ts-expect-error preserve type
   return value;
 }
 
-type GenerationInitResponse = { id?: string; generationId?: string } & Record<string, unknown>;
+type GenerationInitResponse = { generationId?: string } & Record<string, unknown>;
 type GenerationStatusResponse = {
-  id?: string;
+  generationId?: string;
   status?: string;
+  gammaUrl?: string;
   url?: string;
   shareUrl?: string;
   files?: Array<{ url?: string; type?: string } | string> | null;
   result?: { files?: Array<{ url?: string } | string> };
+  pdfUrl?: string;
+  pptxUrl?: string;
 } & Record<string, unknown>;
 
 async function startGeneration(payload: Record<string, unknown>): Promise<string> {
@@ -44,6 +61,7 @@ async function startGeneration(payload: Record<string, unknown>): Promise<string
     headers: {
       "Content-Type": "application/json",
       "X-API-KEY": GAMMA_API_KEY || "",
+      Accept: "application/json",
     },
     body: JSON.stringify(removeUndefinedDeep(payload)),
   });
@@ -52,17 +70,22 @@ async function startGeneration(payload: Record<string, unknown>): Promise<string
     throw new Error(`Gamma v0.2 init failed: ${response.status} ${errorText}`);
   }
   const data = (await response.json()) as GenerationInitResponse;
-  const id = data.generationId || data.id;
+  const id = data.generationId;
   if (!id) {
     throw new Error("Gamma v0.2 init response missing generation id");
   }
   return id;
 }
 
+type PollResult = {
+  gammaUrl?: string;
+  fileUrl?: string;
+};
+
 async function pollGeneration(
   generationId: string,
   options: { intervalMs?: number; timeoutMs?: number } = {}
-): Promise<string> {
+): Promise<PollResult> {
   const intervalMs = options.intervalMs ?? 3000;
   const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
   const deadline = Date.now() + timeoutMs;
@@ -73,6 +96,7 @@ async function pollGeneration(
       headers: {
         "Content-Type": "application/json",
         "X-API-KEY": GAMMA_API_KEY || "",
+        Accept: "application/json",
       },
     });
     if (!res.ok) {
@@ -82,21 +106,25 @@ async function pollGeneration(
     const data = (await res.json()) as GenerationStatusResponse;
     const status = (data.status || "").toLowerCase();
     if (status === "completed" || status === "succeeded" || status === "success") {
-      // Try various shapes for url(s)
-      if (data.url) return data.url;
-      if (data.shareUrl) return data.shareUrl;
+      const gammaUrl = data.gammaUrl || data.url || data.shareUrl;
+      let fileUrl: string | undefined;
+      // Prefer explicit fields if present
+      if (data.pdfUrl) fileUrl = data.pdfUrl;
+      if (data.pptxUrl) fileUrl = data.pptxUrl;
+      // Fallback to files arrays
       const filesArrays: Array<Array<{ url?: string } | string> | undefined | null> = [
         data.files || undefined,
         data.result?.files,
       ];
       for (const files of filesArrays) {
+        if (fileUrl) break;
         if (files && files.length > 0) {
           const first = files[0] as any;
           const url = typeof first === "string" ? first : first?.url;
-          if (url) return url as string;
+          if (url) fileUrl = url as string;
         }
       }
-      throw new Error("Gamma v0.2 completed but no file URL present in response");
+      return { gammaUrl, fileUrl };
     }
     if (status === "failed" || status === "error") {
       throw new Error("Gamma v0.2 generation failed");
@@ -109,36 +137,72 @@ async function pollGeneration(
 // Helper function for making Gamma API v0.2 requests end-to-end
 async function generatePresentation(
   params: Record<string, any>
-): Promise<{ url: string | null; error: string | null }> {
+): Promise<{ url: string | null; filePath: string | null; error: string | null }> {
   try {
-    const payload = {
-      textOptions: {
-        input: params.inputText,
-        prompt: params.inputText,
+    // Map older textAmount values to v0.2 accepted values if needed
+    const mapAmount = (val?: string): string | undefined => {
+      if (!val) return undefined;
+      const v = String(val).toLowerCase();
+      if (["brief", "medium", "detailed", "extensive"].includes(v)) return v;
+      if (v === "short") return "brief";
+      if (v === "long") return "detailed";
+      return undefined;
+    };
+
+    const payload = removeUndefinedDeep({
+      inputText: params.inputText,
+      textMode: params.textMode,
+      format: params.format,
+      themeName: params.themeName,
+      numCards: typeof params.numCards === "string" ? Number(params.numCards) : params.numCards,
+      cardSplit: params.cardSplit,
+      additionalInstructions: params.additionalInstructions,
+      exportAs: params.exportAs,
+      textOptions: removeUndefinedDeep({
+        amount: mapAmount(params.textAmount),
         tone: params.tone,
         audience: params.audience,
         language: params.language,
-        length: params.textAmount,
-        amount: params.textAmount,
-        mode: params.textMode,
-        additionalInstructions: params.additionalInstructions,
-      },
-      imageOptions: {
+      }),
+      imageOptions: removeUndefinedDeep({
+        source: params.imageSource,
         model: params.imageModel,
         style: params.imageStyle,
-      },
-      layoutOptions: {
-        numCards: params.numCards,
-        editorMode: params.editorMode,
-      },
-    };
+      }),
+      cardOptions: removeUndefinedDeep({
+        dimensions: params.cardDimensions,
+      }),
+      sharingOptions: removeUndefinedDeep({
+        workspaceAccess: params.workspaceAccess,
+        externalAccess: params.externalAccess,
+      }),
+    });
 
     const generationId = await startGeneration(payload);
-    const url = await pollGeneration(generationId);
-    return { url, error: null };
+    const { gammaUrl, fileUrl } = await pollGeneration(generationId);
+
+    let savedFilePath: string | null = null;
+    if (fileUrl && params.exportAs) {
+      const outDir = path.resolve(__dirname, "../output");
+      await mkdir(outDir, { recursive: true });
+      const urlObj = new URL(fileUrl);
+      const extFromPath = path.extname(urlObj.pathname) || `.${String(params.exportAs)}`;
+      const baseName = `gamma-generation-${generationId}${extFromPath}`;
+      const targetPath = path.join(outDir, baseName);
+      const fileRes = await fetch(fileUrl, { method: "GET" });
+      if (!fileRes.ok) {
+        console.error(`Failed to download file ${fileUrl}: ${fileRes.status}`);
+      } else {
+        const arrayBuf = await fileRes.arrayBuffer();
+        await writeFile(targetPath, Buffer.from(arrayBuf));
+        savedFilePath = targetPath;
+      }
+    }
+
+    return { url: gammaUrl || null, filePath: savedFilePath, error: null };
   } catch (error: any) {
     console.error("Error making Gamma API v0.2 request:", error);
-    return { url: null, error: error.message || String(error) };
+    return { url: null, filePath: null, error: error.message || String(error) };
   }
 }
 
@@ -155,58 +219,69 @@ const server = new McpServer({
 // Register Gamma generation tool
 server.tool(
   "generate-presentation",
-  "Generate a presentation using the Gamma API. The response will include a link to the generated presentation in the 'text' field. Always include the link in the response when it's available. Do your best to show a preview or a link preview or some sense of the content to the user in the response.",
+  "Generate a presentation using the Gamma API (v0.2). Optionally export a file and save it locally.",
   {
-    inputText: z.string().describe("The topic or prompt for the presentation."),
-    tone: z
-      .string()
-      .optional()
-      .describe(
-        "The tone of the presentation (e.g. 'humorous and sarcastic')."
-      ),
-    audience: z
-      .string()
-      .optional()
-      .describe("The intended audience (e.g. 'students')."),
-    textAmount: z
-      .enum(["short", "medium", "long"])
-      .optional()
-      .describe("How much text to generate."),
+    inputText: z.string().describe("Prompt/topic text. Required by Gamma v0.2."),
     textMode: z
-      .enum(["generate", "summarize"])
+      .enum(["generate", "condense", "preserve"])
       .optional()
-      .describe("Text mode for Gamma API."),
-    language: z
-      .string()
+      .describe("How to treat the inputText."),
+    format: z
+      .enum(["presentation", "document", "social"])
       .optional()
-      .describe(
-        "Output language for generated content (e.g. 'en', 'es', or full name)."
-      ),
+      .describe("Output format."),
+    themeName: z.string().optional().describe("Theme name in Gamma."),
     numCards: z
-      .number()
-      .min(1)
-      .max(20)
+      .union([z.number(), z.string()])
       .optional()
-      .describe("Number of slides/cards to generate."),
-    imageModel: z
-      .string()
+      .describe("Number of cards when cardSplit=auto."),
+    cardSplit: z
+      .enum(["auto", "inputTextBreaks"])
       .optional()
-      .describe("Image model to use (e.g. 'dall-e-3')."),
-    imageStyle: z
-      .string()
+      .describe("How to split content into cards."),
+    additionalInstructions: z.string().optional(),
+    exportAs: z
+      .enum(["pdf", "pptx"])
       .optional()
-      .describe("Image style (e.g. 'line drawings')."),
-    editorMode: z
-      .string()
+      .describe("Also export as a file. Will be downloaded locally."),
+    // textOptions
+    textAmount: z
+      .enum(["brief", "medium", "detailed", "extensive", "short", "long"])
       .optional()
-      .describe("Editor mode (e.g. 'freeform')."),
-    additionalInstructions: z
-      .string()
-      .optional()
-      .describe("Any extra instructions for Gamma."),
+      .describe("How much text to include per card (v0.2: brief/medium/detailed/extensive)."),
+    tone: z.string().optional(),
+    audience: z.string().optional(),
+    language: z.string().optional(),
+    // imageOptions
+    imageSource: z
+      .enum([
+        "aiGenerated",
+        "pictographic",
+        "unsplash",
+        "giphy",
+        "webAllImages",
+        "webFreeToUse",
+        "webFreeToUseCommercially",
+        "placeholder",
+        "noImages",
+      ])
+      .optional(),
+    imageModel: z.string().optional(),
+    imageStyle: z.string().optional(),
+    // cardOptions
+    cardDimensions: z
+      .enum(["fluid", "16x9", "4x3", "pageless", "letter", "a4", "1x1", "4x5", "9x16"])
+      .optional(),
+    // sharingOptions
+    workspaceAccess: z
+      .enum(["noAccess", "view", "comment", "edit", "fullAccess"])
+      .optional(),
+    externalAccess: z
+      .enum(["noAccess", "view", "comment", "edit"])
+      .optional(),
   },
   async (params) => {
-    const { url, error } = await generatePresentation(params);
+    const { url, filePath, error } = await generatePresentation(params);
     if (!url) {
       return {
         content: [
@@ -223,7 +298,9 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Presentation generated! View it here: ${url}`,
+          text: filePath
+            ? `Presentation generated! View it here: ${url}\nSaved exported file to: ${filePath}`
+            : `Presentation generated! View it here: ${url}`,
         },
       ],
     };
