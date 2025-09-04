@@ -18,6 +18,13 @@ npm run build && node build/index.js
 
 # Option 2: Run directly with ts-node during development
 npx ts-node --project tsconfig.json src/index.ts
+
+# Option 3: Pass API key via CLI flags (overrides .env)
+# Direct flag
+npx ts-node --project tsconfig.json src/index.ts --api-key=sk-gamma-xxxx
+# As header (either works; Authorization is mirrored to X-API-KEY)
+npx ts-node --project tsconfig.json src/index.ts --header "X-API-KEY: sk-gamma-xxxx"
+npx ts-node --project tsconfig.json src/index.ts --header "Authorization: sk-gamma-xxxx"
 ```
 
 Common gotchas:
@@ -113,18 +120,28 @@ You might want to adjust the `tsconfig.json` to suit your preferences, but the d
     Also, in your `package.json`, add `"type": "module"` if you are using ES Modules.
 
 5.  **API Key Configuration:**
-    The server requires your Gamma API key. We use the `dotenv` package to load this key from a `.env` file in the project root.
+    Provide your Gamma API key in any of these ways (CLI overrides `.env`):
 
-    1.  Create a file named `.env` in the root of your project (e.g., alongside your `package.json`).
-    2.  Add your Gamma API key to this file like so:
-        ```
-        GAMMA_API_KEY="your_actual_gamma_api_key_here"
-        ```
-        Replace `"your_actual_gamma_api_key_here"` with your actual key.
+    - `.env` file (loaded via `dotenv`):
+      ```
+      GAMMA_API_KEY="your_actual_gamma_api_key_here"
+      ```
+    - Environment variable when invoking:
+      ```bash
+      GAMMA_API_KEY="sk-gamma-xxxx" node build/index.js
+      ```
+    - CLI flags (override env and `.env`):
+      ```bash
+      # Direct flag
+      node build/index.js --api-key=sk-gamma-xxxx
+      # Or pass as header
+      node build/index.js --header "X-API-KEY: sk-gamma-xxxx"
+      node build/index.js --header "Authorization: sk-gamma-xxxx"
+      ```
 
-    **IMPORTANT:** The `.env` file is included in the project's `.gitignore` file, so it **WILL NOT** be committed to your Git repository. This is crucial for keeping your API key secret. Do not remove `.env` from `.gitignore` or commit your API key directly into your codebase.
-
-    If the `GAMMA_API_KEY` is not found in the environment (e.g., if the `.env` file is missing or the key isn't set), the server will log a fatal error and exit upon starting.
+    Notes:
+    - If no key is supplied, requests will be sent without authentication and the Gamma API will return 401.
+    - Headers provided via `--header` are merged into requests; `Authorization` is mirrored to `X-API-KEY` for convenience.
 
 ## Understanding the Server Code (`src/index.ts`)
 
@@ -219,7 +236,7 @@ Let's break down the key parts of the `src/index.ts` file:
 2.  **Start the Server:**
     Build and start the server (uses `build/index.js`):
     ```bash
-    npm run build && node build/index.js
+    npm run build && node build/index.js --api-key=sk-gamma-xxxx
     ```
     Alternatively, you can add scripts to your `package.json`:
     ```json
@@ -231,7 +248,7 @@ Let's break down the key parts of the `src/index.ts` file:
     ```
     Then run:
     ```bash
-    npm start
+    npm start -- --api-key=sk-gamma-xxxx
     # or
     # yarn start
     ```
@@ -283,14 +300,31 @@ To use this server with Claude for Desktop, you need to configure Claude for Des
     {
       "mcpServers": {
         "gamma-presentation-generator": {
-          "command": "npx", // Or absolute path to npx, or node
+          "command": "node",
           "args": [
-            "ts-node", // If command is 'npx'
-            // If command is absolute path to node:
-            // "/PATH/TO/gamma-mcp-server/node_modules/ts-node/dist/bin.js",
-            "src/index.ts"
+            "build/index.js",
+            "--api-key=sk-gamma-xxxx"
           ],
-          "cwd": "/ABSOLUTE/PATH/TO/YOUR/gamma-mcp-server" // Current Working Directory for the server
+          "cwd": "/ABSOLUTE/PATH/TO/YOUR/gamma-mcpserver"
+        }
+      }
+    }
+    ```
+    If you prefer TypeScript directly during development:
+    ```json
+    {
+      "mcpServers": {
+        "gamma-presentation-generator": {
+          "command": "npx",
+          "args": [
+            "ts-node",
+            "--project",
+            "tsconfig.json",
+            "src/index.ts",
+            "--header",
+            "X-API-KEY: sk-gamma-xxxx"
+          ],
+          "cwd": "/ABSOLUTE/PATH/TO/YOUR/gamma-mcpserver"
         }
       }
     }
@@ -330,6 +364,21 @@ When you ask a question in Claude for Desktop:
 6.  The results (presentation URL or error) are sent back from your server to Claude for Desktop, then to the LLM.
 7.  Claude formulates a natural language response incorporating the tool's output.
 8.  The response is displayed to you!
+
+## Request/Response shape (Gamma v0.2)
+
+- POST `https://public-api.gamma.app/v0.2/generations` with body including:
+  - `inputText` (required)
+  - Optional top-level fields like `textMode`, `format`, `numCards`, `cardSplit`, `additionalInstructions`, `exportAs`
+  - `textOptions` (e.g., `amount`, `language`, `tone`, `audience`)
+  - `imageOptions` (e.g., `source`, `model`, `style`)
+  - `cardOptions`, `sharingOptions`
+
+- Response: `{ generationId: string }`
+
+- GET `https://public-api.gamma.app/v0.2/generations/{generationId}` returns status plus URLs. When `status` is `completed`, it includes a `gammaUrl` and may include file URLs (e.g., PDF/PPTX) depending on `exportAs`.
+
+When `exportAs` is provided, this server downloads the file automatically to `gamma-mcpserver/output/` and returns the absolute path in the tool response alongside the `gammaUrl`.
 
 ## Troubleshooting
 

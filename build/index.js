@@ -11,10 +11,60 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 const GAMMA_API_V02_BASE = "https://public-api.gamma.app/v0.2/generations";
-const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
-if (!GAMMA_API_KEY || GAMMA_API_KEY.trim() === "") {
-    console.error("GAMMA_API_KEY is missing. Create a .env file next to package.json with GAMMA_API_KEY=... or export it in your environment.");
-    process.exit(1);
+function parseCliArgs(argv) {
+    const headers = {};
+    let apiKey;
+    const addHeader = (raw) => {
+        const idx = raw.indexOf(":") >= 0 ? raw.indexOf(":") : raw.indexOf("=");
+        if (idx > -1) {
+            const name = raw.slice(0, idx).trim();
+            const value = raw.slice(idx + 1).trim();
+            if (name)
+                headers[name] = value;
+        }
+    };
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        if (arg === "--api-key" && i + 1 < argv.length) {
+            apiKey = argv[++i];
+            continue;
+        }
+        if (arg.startsWith("--api-key=")) {
+            apiKey = arg.slice("--api-key=".length);
+            continue;
+        }
+        if (arg === "--header" && i + 1 < argv.length) {
+            addHeader(argv[++i]);
+            continue;
+        }
+        if (arg.startsWith("--header=")) {
+            addHeader(arg.slice("--header=".length));
+            continue;
+        }
+    }
+    // If Authorization was supplied but X-API-KEY wasn't, mirror it for Gamma
+    const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    if (!lower["x-api-key"] && lower["authorization"]) {
+        headers["X-API-KEY"] = headers["Authorization"];
+    }
+    return { apiKey, headers };
+}
+const CLI = parseCliArgs(process.argv.slice(2));
+function buildHeaders(extra) {
+    const headers = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(extra || {}),
+    };
+    // Apply CLI header overrides first
+    for (const [k, v] of Object.entries(CLI.headers))
+        headers[k] = v;
+    // Ensure X-API-KEY is present if provided via env/flag
+    const cliApiKey = CLI.apiKey || process.env.GAMMA_API_KEY || "";
+    const hasApiKeyHeader = Object.keys(headers).some((k) => k.toLowerCase() === "x-api-key");
+    if (!hasApiKeyHeader && cliApiKey)
+        headers["X-API-KEY"] = cliApiKey;
+    return headers;
 }
 function removeUndefinedDeep(value) {
     if (Array.isArray(value)) {
@@ -38,11 +88,7 @@ function removeUndefinedDeep(value) {
 async function startGeneration(payload) {
     const response = await fetch(GAMMA_API_V02_BASE, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-API-KEY": GAMMA_API_KEY || "",
-            Accept: "application/json",
-        },
+        headers: buildHeaders(),
         body: JSON.stringify(removeUndefinedDeep(payload)),
     });
     if (!response.ok) {
@@ -63,11 +109,7 @@ async function pollGeneration(generationId, options = {}) {
     while (Date.now() < deadline) {
         const res = await fetch(`${GAMMA_API_V02_BASE}/${encodeURIComponent(generationId)}`, {
             method: "GET",
-            headers: {
-                "Content-Type": "application/json",
-                "X-API-KEY": GAMMA_API_KEY || "",
-                Accept: "application/json",
-            },
+            headers: buildHeaders(),
         });
         if (!res.ok) {
             const errorText = await res.text();
