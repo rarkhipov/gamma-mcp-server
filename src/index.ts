@@ -14,6 +14,165 @@ dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const GAMMA_API_V02_BASE = "https://public-api.gamma.app/v0.2/generations";
 
+// Allowed Gamma theme names. If not provided, Gamma uses the workspace default.
+const ALLOWED_THEME_NAMES = [
+  "Pearl",
+  "Vortex",
+  "Chisel",
+  "Stardust",
+  "Seafoam",
+  "Nebulae",
+  "Creme",
+  "Lux",
+  "Consultant",
+  "Marine",
+  "Elysia",
+  "Prism",
+  "Lunaria",
+  "Night Sky",
+  "Commons",
+  "Bonan Hale",
+  "Gamma",
+  "Gamma Dark",
+  "Dialogue",
+  "Founder",
+  "Lavender",
+  "Indigo",
+  "Howlite",
+  "Onyx",
+  "Atmosphere",
+  "Blueberry",
+  "Kraft",
+  "Mystique",
+  "Petrol",
+  "Blues",
+  "Peach",
+  "Incandescent",
+  "Oatmeal",
+  "Sanguine",
+  "Sage",
+  "Verdigris",
+  "Ash",
+  "Coal",
+  "Flamingo",
+  "Canaveral",
+  "Oasis",
+  "Fluo",
+  "Finesse",
+  "Electric",
+  "Zephyr",
+  "Chimney Smoke",
+  "Chimney Dust",
+  "Icebreaker",
+  "Blue Steel",
+  "Daydream",
+  "Orbit",
+  "Dune",
+  "Mocha",
+  "Serene",
+  "Cornflower",
+  "Vanilla",
+  "Alien",
+  "Breeze",
+  "Aurora",
+  "Velvet Tides",
+  "Tranquil",
+  "Borealis",
+  "Terracotta",
+  "Bubble Gum",
+  "Snowball",
+  "Pistachio",
+  "Piano",
+  "Atacama",
+  "Wireframe",
+  "Aurum",
+  "Bee Happy",
+  "Chocolate",
+  "Cigar",
+  "Cornfield",
+  "Daktilo",
+  "Dawn",
+  "Editoria",
+  "Flax",
+  "Gleam",
+  "Gold Leaf",
+  "Iris",
+  "Keepsake",
+  "Leimoon",
+  "Linen",
+  "Malibu",
+  "Moss & Mist",
+  "Plant Shop",
+  "Rush",
+  "Shadow",
+  "Slate",
+  "Sprout",
+  "Wine",
+  "Basic Light",
+  "Basic Dark",
+] as const;
+
+// Allowed languages for Gamma v0.2
+const ALLOWED_LANGUAGES = [
+  "en", "en-gb", "en-in",
+  "es", "es-es", "es-mx", "es-419", "ca",
+  "fr",
+  "zh-cn", "zh-tw",
+  "ko",
+  "ja", "ja-da",
+  "pt-br", "pt-pt",
+  "de",
+  "it",
+  "ru",
+  "pl",
+  "uk",
+  "ro",
+  "hu",
+  "cs",
+  "el",
+  "tr",
+  "ar", "ar-sa",
+  "he",
+  "fa",
+  "nl",
+  "sv",
+  "da",
+  "nb",
+  "fi",
+  "id",
+  "vi",
+  "hi",
+  "gu",
+  "mr",
+  "te",
+  "bn",
+  "ta",
+  "ur",
+  "kn",
+  "ml",
+  "th",
+  "sr",
+  "hr",
+  "sq",
+  "bg",
+  "sl",
+  "bs",
+  "mk",
+  "sw",
+  "ha",
+  "yo",
+  "tl",
+  "ms",
+  "kk",
+  "uz",
+  "af",
+  "lv",
+  "lt",
+  "et",
+  "is",
+  "cy",
+] as const;
+
 type CliOptions = {
   apiKey?: string;
   headers: Record<string, string>;
@@ -105,6 +264,7 @@ type GenerationStatusResponse = {
   gammaUrl?: string;
   url?: string;
   shareUrl?: string;
+  exportUrl?: string;
   files?: Array<{ url?: string; type?: string } | string> | null;
   result?: { files?: Array<{ url?: string } | string> };
   pdfUrl?: string;
@@ -156,9 +316,10 @@ async function pollGeneration(
     if (status === "completed" || status === "succeeded" || status === "success") {
       const gammaUrl = data.gammaUrl || data.url || data.shareUrl;
       let fileUrl: string | undefined;
-      // Prefer explicit fields if present
-      if (data.pdfUrl) fileUrl = data.pdfUrl;
-      if (data.pptxUrl) fileUrl = data.pptxUrl;
+      // Prefer explicit export URL, then typed URLs
+      if (data.exportUrl) fileUrl = data.exportUrl;
+      if (!fileUrl && data.pptxUrl) fileUrl = data.pptxUrl;
+      if (!fileUrl && data.pdfUrl) fileUrl = data.pdfUrl;
       // Fallback to files arrays
       const filesArrays: Array<Array<{ url?: string } | string> | undefined | null> = [
         data.files || undefined,
@@ -187,27 +348,17 @@ async function generatePresentation(
   params: Record<string, any>
 ): Promise<{ url: string | null; filePath: string | null; error: string | null }> {
   try {
-    // Map older textAmount values to v0.2 accepted values if needed
-    const mapAmount = (val?: string): string | undefined => {
-      if (!val) return undefined;
-      const v = String(val).toLowerCase();
-      if (["brief", "medium", "detailed", "extensive"].includes(v)) return v;
-      if (v === "short") return "brief";
-      if (v === "long") return "detailed";
-      return undefined;
-    };
-
     const payload = removeUndefinedDeep({
       inputText: params.inputText,
-      textMode: params.textMode,
-      format: params.format,
-      themeName: params.themeName,
+      textMode: "generate",
+      format: "presentation",
+      themeName: params.themeName || undefined,
       numCards: typeof params.numCards === "string" ? Number(params.numCards) : params.numCards,
       cardSplit: params.cardSplit,
       additionalInstructions: params.additionalInstructions,
-      exportAs: params.exportAs,
+      exportAs: "pptx",
       textOptions: removeUndefinedDeep({
-        amount: mapAmount(params.textAmount),
+        amount: params.textAmount,
         tone: params.tone,
         audience: params.audience,
         language: params.language,
@@ -230,11 +381,11 @@ async function generatePresentation(
     const { gammaUrl, fileUrl } = await pollGeneration(generationId);
 
     let savedFilePath: string | null = null;
-    if (fileUrl && params.exportAs) {
+    if (fileUrl) {
       const outDir = path.resolve(__dirname, "../output");
       await mkdir(outDir, { recursive: true });
       const urlObj = new URL(fileUrl);
-      const extFromPath = path.extname(urlObj.pathname) || `.${String(params.exportAs)}`;
+      const extFromPath = path.extname(urlObj.pathname) || ".pptx";
       const baseName = `gamma-generation-${generationId}${extFromPath}`;
       const targetPath = path.join(outDir, baseName);
       const fileRes = await fetch(fileUrl, { method: "GET" });
@@ -247,7 +398,8 @@ async function generatePresentation(
       }
     }
 
-    return { url: gammaUrl || null, filePath: savedFilePath, error: null };
+    // Prefer export file URL presence; still include Gamma URL for reference if available
+    return { url: fileUrl || gammaUrl || null, filePath: savedFilePath, error: null };
   } catch (error: any) {
     console.error("Error making Gamma API v0.2 request:", error);
     return { url: null, filePath: null, error: error.message || String(error) };
@@ -270,36 +422,50 @@ server.tool(
   "Generate a presentation using the Gamma API (v0.2). Optionally export a file and save it locally.",
   {
     inputText: z.string().describe("Prompt/topic text. Required by Gamma v0.2."),
-    textMode: z
-      .enum(["generate", "condense", "preserve"])
+    // textMode and format are fixed by server to generate/presentation
+    themeName: z
+      .union([
+        z.literal(""),
+        z.enum(ALLOWED_THEME_NAMES as unknown as [string, ...string[]]),
+      ])
       .optional()
-      .describe("How to treat the inputText."),
-    format: z
-      .enum(["presentation", "document", "social"])
-      .optional()
-      .describe("Output format."),
-    themeName: z.string().optional().describe("Theme name in Gamma."),
+      .transform((v) => (v ? v : undefined))
+      .describe(
+        "Theme to apply. Must be one of the allowed themes or empty to use workspace default (recommended unless you know the exact theme name)."
+      ),
     numCards: z
-      .union([z.number(), z.string()])
+      .coerce
+      .number()
+      .int()
+      .min(1)
+      .max(60)
       .optional()
-      .describe("Number of cards when cardSplit=auto."),
+      .describe("Integer 1-60. Number of cards when cardSplit=auto."),
     cardSplit: z
       .enum(["auto", "inputTextBreaks"])
       .optional()
       .describe("How to split content into cards."),
     additionalInstructions: z.string().optional(),
-    exportAs: z
-      .enum(["pdf", "pptx"])
-      .optional()
-      .describe("Also export as a file. Will be downloaded locally."),
+    // exportAs is forced to pptx by server
     // textOptions
     textAmount: z
-      .enum(["brief", "medium", "detailed", "extensive", "short", "long"])
+      .enum(["brief", "medium", "detailed", "extensive"]) // enforce only v0.2 values
       .optional()
-      .describe("How much text to include per card (v0.2: brief/medium/detailed/extensive)."),
-    tone: z.string().optional(),
-    audience: z.string().optional(),
-    language: z.string().optional(),
+      .describe("How much text to include per card (brief, medium, detailed, extensive)."),
+    tone: z
+      .string()
+      .max(500)
+      .optional()
+      .describe("Defines the mood or voice of the gamma. Character limits: 1-500. Example: professional and inspiring."),
+    audience: z
+      .string()
+      .max(500)
+      .optional()
+      .describe("Defines the intended readers/viewers of the gamma for a more catered output. Character limits: 1-500. Example: tech investors and enthusiasts."),
+    language: z
+      .enum(ALLOWED_LANGUAGES as unknown as [string, ...string[]])
+      .optional()
+      .describe("Language code for output. One of: en, en-gb, en-in, es, es-es, es-mx, es-419, ca, fr, zh-cn, zh-tw, ko, ja, ja-da, pt-br, pt-pt, de, it, ru, pl, uk, ro, hu, cs, el, tr, ar, ar-sa, he, fa, nl, sv, da, nb, fi, id, vi, hi, gu, mr, te, bn, ta, ur, kn, ml, th, sr, hr, sq, bg, sl, bs, mk, sw, ha, yo, tl, ms, kk, uz, af, lv, lt, et, is, cy."),
     // imageOptions
     imageSource: z
       .enum([

@@ -380,6 +380,35 @@ When you ask a question in Claude for Desktop:
 
 When `exportAs` is provided, this server downloads the file automatically to `gamma-mcpserver/output/` and returns the absolute path in the tool response alongside the `gammaUrl`.
 
+## Current parameter constraints (intentionally simplified)
+
+To reduce common mistakes made by AI agents, some parameters are fixed by the server for now. We plan to re-expose them in the future when usage is more reliable.
+
+- Fixed by server (hidden from tool inputs):
+  - **textMode**: always `generate`
+  - **format**: always `presentation`
+  - **exportAs**: always `pptx`
+
+- Accepted tool inputs and constraints:
+  - **inputText**: required
+  - **language**: one of
+    `en, en-gb, en-in, es, es-es, es-mx, es-419, ca, fr, zh-cn, zh-tw, ko, ja, ja-da, pt-br, pt-pt, de, it, ru, pl, uk, ro, hu, cs, el, tr, ar, ar-sa, he, fa, nl, sv, da, nb, fi, id, vi, hi, gu, mr, te, bn, ta, ur, kn, ml, th, sr, hr, sq, bg, sl, bs, mk, sw, ha, yo, tl, ms, kk, uz, af, lv, lt, et, is, cy`
+  - **textAmount**: one of `brief`, `medium`, `detailed`, `extensive`
+  - **tone** (optional, <=500 chars): Defines the mood or voice. Example: "professional and inspiring"
+  - **audience** (optional, <=500 chars): Intended readers/viewers. Example: "tech investors and enthusiasts"
+  - **numCards** (optional): integer 1–60
+  - **cardSplit** (optional): `auto` | `inputTextBreaks`
+  - **additionalInstructions** (optional): extra guidance
+  - **themeName** (optional): must be from the allowed list below, or leave empty to use workspace default (often best unless you know the exact name)
+
+Allowed theme names:
+
+Pearl, Vortex, Chisel, Stardust, Seafoam, Nebulae, Creme, Lux, Consultant, Marine, Elysia, Prism, Lunaria, Night Sky, Commons, Bonan Hale, Gamma, Gamma Dark, Dialogue, Founder, Lavender, Indigo, Howlite, Onyx, Atmosphere, Blueberry, Kraft, Mystique, Petrol, Blues, Peach, Incandescent, Oatmeal, Sanguine, Sage, Verdigris, Ash, Coal, Flamingo, Canaveral, Oasis, Fluo, Finesse, Electric, Zephyr, Chimney Smoke, Chimney Dust, Icebreaker, Blue Steel, Daydream, Orbit, Dune, Mocha, Serene, Cornflower, Vanilla, Alien, Breeze, Aurora, Velvet Tides, Tranquil, Borealis, Terracotta, Bubble Gum, Snowball, Pistachio, Piano, Atacama, Wireframe, Aurum, Bee Happy, Chocolate, Cigar, Cornfield, Daktilo, Dawn, Editoria, Flax, Gleam, Gold Leaf, Iris, Keepsake, Leimoon, Linen, Malibu, Moss & Mist, Plant Shop, Rush, Shadow, Slate, Sprout, Wine, Basic Light, Basic Dark
+
+Notes:
+- We prefer the exported file URL (`exportUrl`) when available and save the PPTX to `gamma-mcpserver/output/`.
+- Hidden parameters (textMode, format, exportAs) are set server-side to reduce errors from AI agents. We expect to re-enable explicit control later.
+
 ## Troubleshooting
 
 - **Server Not Detected by Claude for Desktop:**
